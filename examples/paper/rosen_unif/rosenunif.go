@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"math/rand"
 	"runtime"
 	"time"
@@ -31,6 +32,8 @@ func main() {
 
 	nDim := 10
 
+	trueEv := 1924.0 * float64(nDim-1)
+
 	mins := make([]float64, nDim)
 	maxs := make([]float64, nDim)
 	for i := range maxs {
@@ -50,9 +53,15 @@ func main() {
 				}
 			},
 		},
-		NumFolds: 5,
+		NumFolds: 10,
 		NumDim:   nDim,
 	}
 
-	_ = helper.MonteCarlo(generator, sampVec, nRuns)
+	results, err := helper.MonteCarlo(generator, sampVec, nRuns)
+	if err != nil {
+		log.Fatal(err)
+	}
+	eims := helper.ErrorInMean(results, trueEv)
+
+	helper.PrintMses(eims, sampVec)
 }

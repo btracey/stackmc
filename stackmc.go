@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"os"
 	"sync"
 
 	"github.com/gonum/floats"
@@ -130,6 +131,7 @@ type evStruct struct {
 // If all
 func Estimate(control Controler, samples []Sample) (*Result, error) {
 
+	//fmt.Println("Starting Estimate")
 	err := checkInputs(samples)
 	if err != nil {
 		return nil, err
@@ -303,6 +305,10 @@ func Estimate(control Controler, samples []Sample) (*Result, error) {
 	alpha := make([]float64, nFitter)
 	for i := range alpha {
 		alpha[i] = c.At(i, 0)
+		if math.IsNaN(alpha[i]) {
+			fmt.Println(covmat)
+			os.Exit(1)
+		}
 	}
 
 	// Wait for all the expected values to be done
@@ -361,22 +367,25 @@ func cov(data ...[]float64) (*mat64.Dense, error) {
 	}
 	covmat := mat64.NewDense(nSets, nSets, nil)
 
+	//fmt.Println("data = ", data)
+	//fmt.Println("nData = ", nData)
+
 	// Compute the mean of all the datasets
 	means := make([]float64, nSets)
 	for i := range means {
 		means[i] = floats.Sum(data[i]) / float64(nData)
 	}
+	//fmt.Println("means = ", means)
 
 	for i := 0; i < nSets; i++ {
 		for j := i; j < nSets; j++ {
 			var cv float64
 			meanI := means[i]
 			meanJ := means[j]
+			invData := 1 / float64(nData-1)
 			for k, val := range data[i] {
-				cv += (val - meanI) * (data[j][k] - meanJ)
+				cv += invData * (val - meanI) * (data[j][k] - meanJ)
 			}
-			cv /= float64(nData - 1)
-			cv = math.Sqrt(cv)
 			covmat.Set(i, j, cv)
 			covmat.Set(j, i, cv)
 		}
