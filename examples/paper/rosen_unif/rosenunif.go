@@ -28,7 +28,7 @@ func main() {
 
 	sampVec := helper.SampleRange(numSamp, minSamp, maxSamp)
 
-	nRuns := 2000
+	nRuns := 4000
 
 	nDim := 10
 
