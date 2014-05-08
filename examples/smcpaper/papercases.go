@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"flag"
 	"log"
+	"math"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -115,7 +116,7 @@ func GetRunDetails(casename string, nDimA int) (generator helper.Generator, samp
 		}
 
 		minSamp := 3.5 * float64(realNumDim)
-		maxSamp := 20 * float64(realNumDim)
+		maxSamp := 7 * float64(realNumDim)
 
 		sampSlice = helper.SampleRange(numSamp, minSamp, maxSamp)
 
@@ -150,6 +151,32 @@ func GetRunDetails(casename string, nDimA int) (generator helper.Generator, samp
 		}
 		sampSlice = helper.SampleRange(numSamp, 35, 200)
 
+		mins := make([]float64, 10)
+		maxs := make([]float64, 10)
+		for i := range maxs {
+			maxs[i] = 1
+		}
+		dist := stackmc.NewUniform(mins, maxs)
+
+		artificialDomain := func(s []float64) float64 {
+			return 10*math.Sin(math.Pi*s[0]*s[1]) + 20*(s[2]-0.5)*(s[2]-0.5) +
+				10*s[3] + 5*s[4] + rand.Float64()
+		}
+
+		generator = &helper.StandardKFold{
+			Dist:     dist,
+			Function: artificialDomain,
+			FitterGenerators: []func() stackmc.Fitter{
+				func() stackmc.Fitter {
+					return &stackmc.Polynomial{
+						Order: 3,
+						Dist:  dist,
+					}
+				},
+			},
+			NumFolds: 10,
+			NumDim:   realNumDim,
+		}
 	}
 	return generator, sampSlice, nRuns, ev, realNumDim
 }
