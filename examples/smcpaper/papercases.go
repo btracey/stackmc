@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"log"
 	"math/rand"
@@ -26,7 +27,7 @@ func init() {
 	}
 }
 
-var defaultNumRuns = 20000
+var defaultNumRuns = 2000
 
 func main() {
 	//defer profile.Start(profile.CPUProfile).Stop()
@@ -61,12 +62,40 @@ func main() {
 	}
 	eims := helper.ErrorInMean(results, trueEv)
 
-	helper.PrintMses(eims, sampSlice)
-
 	dimDir := "dim_" + strconv.Itoa(nDim)
 	runDir := "runs_" + strconv.Itoa(nRuns)
 	filePath := filepath.Join(gopath, "results", "stackmc", casename, dimDir, runDir)
-	os.MkdirAll(filePath, 0700)
+
+	err = os.MkdirAll(filePath, 0700)
+	if err != nil {
+		log.Fatal(err)
+	}
+	jsonF, err := os.Create(filepath.Join(filePath, "eim_json.txt"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer jsonF.Close()
+
+	// Need to save the EIMS as a json too so can use later along with samle
+	jsonStruct := struct {
+		EIMS      []helper.SmcMse
+		SampSlice []int
+		NumDim    int
+		NumRuns   int
+	}{
+		eims,
+		sampSlice,
+		nDim,
+		nRuns,
+	}
+
+	b, err := json.MarshalIndent(jsonStruct, "", "\t")
+	if err != nil {
+		log.Fatal(err)
+	}
+	jsonF.Write(b)
+
+	helper.PrintMses(eims, sampSlice)
 	filename := filepath.Join(filePath, "eim.pdf")
 
 	helper.PlotEIM(eims, sampSlice, filename)
@@ -86,7 +115,7 @@ func GetRunDetails(casename string, nDimA int) (generator helper.Generator, samp
 		}
 
 		minSamp := 3.5 * float64(realNumDim)
-		maxSamp := 200 * float64(realNumDim)
+		maxSamp := 20 * float64(realNumDim)
 
 		sampSlice = helper.SampleRange(numSamp, minSamp, maxSamp)
 
@@ -114,6 +143,13 @@ func GetRunDetails(casename string, nDimA int) (generator helper.Generator, samp
 		}
 		nRuns = defaultNumRuns
 		ev = 1924.0 * float64(realNumDim-1)
+	case "friedmanartificial":
+		numSamp := 8
+		if nDimA != -1 {
+			log.Fatal("artificial has a fixed number of dimensions")
+		}
+		sampSlice = helper.SampleRange(numSamp, 35, 200)
+
 	}
 	return generator, sampSlice, nRuns, ev, realNumDim
 }
