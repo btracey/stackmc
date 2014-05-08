@@ -11,10 +11,10 @@ import (
 )
 
 // Returns a log-spaced range of samples
-func SampleRange(nSpace, min, max int) []int {
+func SampleRange(nSpace int, min, max float64) []int {
 	ints := make([]int, nSpace)
 	fs := make([]float64, nSpace)
-	sampVec := floats.LogSpan(fs, float64(min), float64(max))
+	sampVec := floats.LogSpan(fs, min, max)
 	for i := range sampVec {
 		if sampVec[i] > 0.5 {
 			ints[i] = int(math.Ceil(sampVec[i]))
