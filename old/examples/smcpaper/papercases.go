@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"flag"
+	"fmt"
 	"log"
 	"math"
 	"math/rand"
@@ -54,7 +55,7 @@ func main() {
 	if setNumRuns != -1 {
 		nRuns = setNumRuns
 	}
-
+	log.Println("casename is: ", casename)
 	log.Println("sample slice is ", sampSlice)
 	log.Println("number of runs is ", nRuns)
 	results, err := helper.MonteCarlo(generator, sampSlice, nRuns)
@@ -99,7 +100,12 @@ func main() {
 	helper.PrintMses(eims, sampSlice)
 	filename := filepath.Join(filePath, "eim.pdf")
 
-	helper.PlotEIM(eims, sampSlice, filename)
+	fmt.Println("Plot filename is: ", filename)
+	err = helper.PlotEIM(eims, sampSlice, filename)
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Println("Completed")
 }
 
 func GetRunDetails(casename string, nDimA int) (generator helper.Generator, sampSlice []int, nRuns int, ev float64, realNumDim int) {
@@ -144,12 +150,87 @@ func GetRunDetails(casename string, nDimA int) (generator helper.Generator, samp
 		}
 		nRuns = defaultNumRuns
 		ev = 1924.0 * float64(realNumDim-1)
+
+	case "rosenfit":
+		numSamp := 8
+		realNumDim = nDimA
+		if nDimA == -1 {
+			realNumDim = 10
+		}
+
+		minSamp := 3.5 * float64(realNumDim)
+		maxSamp := 7 * float64(realNumDim)
+
+		sampSlice = helper.SampleRange(numSamp, minSamp, maxSamp)
+
+		mins := make([]float64, realNumDim)
+		maxs := make([]float64, realNumDim)
+		for i := range maxs {
+			mins[i] = -3
+			maxs[i] = 3
+		}
+		dist := stackmc.NewUniform(mins, maxs)
+
+		generator = &helper.StandardKFold{
+			Dist:     dist,
+			Function: helper.Rosen,
+			FitterGenerators: []func() stackmc.Fitter{
+				func() stackmc.Fitter {
+					return &stackmc.Polynomial{
+						Order:   3,
+						Dist:    stackmc.NoFit{},
+						FitDist: true,
+					}
+				},
+			},
+			NumFolds: 10,
+			NumDim:   realNumDim,
+		}
+		nRuns = defaultNumRuns
+		ev = 1924.0 * float64(realNumDim-1)
+	case "rosengauss":
+		numSamp := 8
+		realNumDim = nDimA
+		if nDimA == -1 {
+			realNumDim = 10
+		}
+
+		minSamp := 3.5 * float64(realNumDim)
+		maxSamp := 70 * float64(realNumDim)
+
+		sampSlice = helper.SampleRange(numSamp, minSamp, maxSamp)
+		means := make([]float64, realNumDim)
+		stds := make([]float64, realNumDim)
+		for i := range means {
+			means[i] = 0
+			stds[i] = 2
+		}
+		dist := stackmc.NewIndedpendentGaussian(means, stds)
+		generator = &helper.StandardKFold{
+			Dist:     dist,
+			Function: helper.Rosen,
+			FitterGenerators: []func() stackmc.Fitter{
+				func() stackmc.Fitter {
+					return &stackmc.Polynomial{
+						Order: 3,
+						Dist:  dist,
+					}
+				},
+			},
+			NumFolds: 10,
+			NumDim:   realNumDim,
+		}
+		nRuns = defaultNumRuns
+		ev = 5205.0 * float64(realNumDim-1)
 	case "friedmanartificial":
 		numSamp := 8
 		if nDimA != -1 {
 			log.Fatal("artificial has a fixed number of dimensions")
 		}
-		sampSlice = helper.SampleRange(numSamp, 35, 200)
+		realNumDim = 10
+		sampSlice = helper.SampleRange(numSamp, 35, 1000)
+
+		fmt.Println("sampslice = ", sampSlice)
 
 		mins := make([]float64, 10)
 		maxs := make([]float64, 10)
@@ -177,6 +258,7 @@ func GetRunDetails(casename string, nDimA int) (generator helper.Generator, samp
 			NumFolds: 10,
 			NumDim:   realNumDim,
 		}
+		ev = 14.913264896322753 // 10^9 samples, 6 minutes
 	}
 	return generator, sampSlice, nRuns, ev, realNumDim
 }
