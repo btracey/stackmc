@@ -17,7 +17,7 @@ type Polynomial struct {
 }
 
 // Fit fits a polynomial to the data samples
-func (p *Polynomial) Fit(x mat64.Matrix, f []float64, inds []int) stackmc.Predictor {
+func (p *Polynomial) Fit(x mat64.Matrix, f []float64, d stackmc.Distribution, inds []int) stackmc.Predictor {
 	_, nDim := x.Dims()
 	nTerms := 1 + p.Order*nDim
 	polymat := mat64.NewDense(len(inds), nTerms, nil)
@@ -70,7 +70,7 @@ type PolyPred struct {
 	dim   int
 }
 
-func (p PolyPred) Predict(x []float64, dist stackmc.Distribution) float64 {
+func (p PolyPred) Predict(x []float64) float64 {
 	if len(x) != p.dim {
 		panic("fit: length mismatch")
 	}

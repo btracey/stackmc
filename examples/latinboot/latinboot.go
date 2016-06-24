@@ -145,7 +145,7 @@ func main() {
 		r.StackMCPlotNames[i] = SMCSettings[i].PlotName
 	}
 
-	loc := filepath.Join(gopath, "results", "stackmc", "nips2016", kind, "plots")
+	loc := filepath.Join(gopath, "results", "stackmc", "refactor", kind, "plots")
 	err := os.MkdirAll(loc, 0700)
 	if err != nil {
 		log.Fatal(err)
@@ -1062,9 +1062,9 @@ func getRunSettings(kind string) (float64, RunSettings, ProblemSettings, []SMCSe
 
 		rs := RunSettings{
 			MinSamples: 40,
-			MaxSamples: 80,
+			MaxSamples: 800,
 			NumSamples: 6,
-			Runs:       5000,
+			Runs:       2000,
 		}
 		if kind == "rosengausslb30" {
 			rs.MinSamples = 30
@@ -1125,17 +1125,19 @@ func getRunSettings(kind string) (float64, RunSettings, ProblemSettings, []SMCSe
 					},
 				},
 			*/
-			{
-				Name:     "KfoldEEA",
-				PlotName: "StackMCIterInd",
-				Folder:   fold.MultiKFold{K: folds, Multi: 1},
-				SMCSettings: &stackmc.Settings{
-					UpdateFull:    false,
-					Concurrent:    0,
-					AlphaComputer: stackmc.IterativeAlpha{true},
-					EstimateFitEV: -1,
+			/*
+				{
+					Name:     "KfoldEEA",
+					PlotName: "StackMCIterInd",
+					Folder:   fold.MultiKFold{K: folds, Multi: 1},
+					SMCSettings: &stackmc.Settings{
+						UpdateFull:    false,
+						Concurrent:    0,
+						AlphaComputer: stackmc.IterativeAlpha{true},
+						EstimateFitEV: -1,
+					},
 				},
-			},
+			*/
 
 			/*
 				{

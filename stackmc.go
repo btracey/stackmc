@@ -68,7 +68,7 @@ const defaultEVMultiple = 100
 
 // A fitter can produce a Predictor based on a given set of samples.
 type Fitter interface {
-	Fit(x mat64.Matrix, f []float64, inds []int) Predictor
+	Fit(x mat64.Matrix, f []float64, d Distribution, inds []int) Predictor
 }
 
 // A Predictor can predict the function value at a set of x locations, and
@@ -76,7 +76,7 @@ type Fitter interface {
 // generating probability data should be embedded within the predictor by the user.
 type Predictor interface {
 	// Predict estimates the value of the function at the given x location.
-	Predict(x []float64, d Distribution) float64
+	Predict(x []float64) float64
 	// Integrable returns whether the predictor can be analytically integrated
 	// under the distribution.
 	Integrable(d Distribution) bool
@@ -107,6 +107,14 @@ type Result struct {
 	EV  float64
 	Std float64 // Standard deviation
 }
+
+/*
+// MakeFuncPredictions makes predictions to the function values.
+// Returned is ...
+func MakeFuncPredictions(x mat64.Matrix, f []float64, fitters []Fitter, folds []Fold) (predictor) {
+
+}
+*/
 
 // Estimate estimates the expected value of the function with the given inputs.
 // Something about knownP bool for fitting the distribution.
@@ -204,7 +212,7 @@ func Estimate(d Distribution, x mat64.Matrix, f []float64, fitters []Fitter, fol
 			for p := range fitChan {
 				if p.fold == -1 {
 					// Use the fit to all, and send to the EVs
-					pred := fitters[p.fitter].Fit(x, f, allTrain)
+					pred := fitters[p.fitter].Fit(x, f, d, allTrain)
 					evChan <- predMessage{
 						pred:   pred,
 						fitter: p.fitter,
@@ -212,7 +220,7 @@ func Estimate(d Distribution, x mat64.Matrix, f []float64, fitters []Fitter, fol
 					}
 					continue
 				}
-				pred := fitters[p.fitter].Fit(x, f, folds[p.fold].Train)
+				pred := fitters[p.fitter].Fit(x, f, d, folds[p.fold].Train)
 				message := predMessage{
 					pred:   pred,
 					fitter: p.fitter,
@@ -261,7 +269,7 @@ func Estimate(d Distribution, x mat64.Matrix, f []float64, fitters []Fitter, fol
 					evSamples := mat64.NewDense(evSamp, dim, nil)
 					d.Sample(evSamples)
 					for i := 0; i < evSamp; i++ {
-						ev += p.pred.Predict(evSamples.RawRowView(i), d)
+						ev += p.pred.Predict(evSamples.RawRowView(i))
 					}
 					ev /= float64(evSamp)
 				}
@@ -351,7 +359,7 @@ func Estimate(d Distribution, x mat64.Matrix, f []float64, fitters []Fitter, fol
 			for set := range predictChan {
 				for _, idx := range set.idxs {
 					mat64.Row(row, idx, x)
-					v := set.pred.Predict(row, d)
+					v := set.pred.Predict(row)
 					predictions[set.fold][set.fitter][uniqueMaps[set.fold][idx]] = v
 				}
 			}
@@ -468,7 +476,7 @@ func MCExpectedValue(f []float64, inds []int) float64 {
 // FitExpectedValue computes the expected value of the function based purely on
 // a fit to the function using the given samples.
 func FitExpectedValue(fit Fitter, d Distribution, x mat64.Matrix, f []float64, inds []int, evMult float64) float64 {
-	p := fit.Fit(x, f, inds)
+	p := fit.Fit(x, f, d, inds)
 	if p.Integrable(d) {
 		return p.ExpectedValue(d)
 	}
@@ -485,7 +493,7 @@ func FitExpectedValue(fit Fitter, d Distribution, x mat64.Matrix, f []float64, i
 	evSamples := mat64.NewDense(evSamp, dim, nil)
 	d.Sample(evSamples)
 	for i := 0; i < evSamp; i++ {
-		ev += p.Predict(evSamples.RawRowView(i), d)
+		ev += p.Predict(evSamples.RawRowView(i))
 	}
 	ev /= float64(evSamp)
 	return ev

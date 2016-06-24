@@ -22,7 +22,7 @@ type ControlFunc struct {
 	Noise  float64
 }
 
-func (cont ControlFunc) Fit(x mat64.Matrix, f []float64, inds []int) stackmc.Predictor {
+func (cont ControlFunc) Fit(x mat64.Matrix, f []float64, d stackmc.Distribution, inds []int) stackmc.Predictor {
 	_, c := x.Dims()
 	if c != 1 {
 		panic("only coded for one-D")
@@ -47,6 +47,7 @@ type ControlFuncPredictor struct {
 	f      []float64
 	kernel CFKernelOneD
 	noise  float64
+	dist   stackmc.Distribution
 
 	once      sync.Once
 	k0        *mat64.SymDense
@@ -56,8 +57,8 @@ type ControlFuncPredictor struct {
 	ev        float64
 }
 
-func (c *ControlFuncPredictor) Predict(x []float64, dist stackmc.Distribution) float64 {
-	distsi := dist.(distribution.ScoreInputer)
+func (c *ControlFuncPredictor) Predict(x []float64) float64 {
+	distsi := c.dist.(distribution.ScoreInputer)
 	c.setk0calcev(distsi)
 
 	// Set k1
