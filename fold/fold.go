@@ -7,11 +7,10 @@ import (
 	"github.com/btracey/stackmc"
 	"github.com/gonum/floats"
 	"github.com/gonum/matrix/mat64"
+	"github.com/gonum/stat/samplemv"
 )
 
-func addSamples(samps mat64.Dense, nNew, dim int, dist stackmc.Distribution) (updatedSamps mat64.Dense) {
-	//rand.Seed(0)
-	//fmt.Println("fixed seed")
+func addSamples(samps mat64.Dense, nNew, dim int, dist samplemv.Sampler) (updatedSamps mat64.Dense) {
 	newSamps := mat64.NewDense(nNew, dim, nil)
 	dist.Sample(newSamps)
 	r, _ := samps.Dims()
@@ -27,7 +26,7 @@ func addSamples(samps mat64.Dense, nNew, dim int, dist stackmc.Distribution) (up
 // FoldAdver is an advanced folder for research purposes. NSamples is the "real"
 // samples from the function, and are indices 0 to nSamples - 1.
 type AdvFolder interface {
-	AdvFolds(nSamples, dim int, extraSampler stackmc.Distribution) (newSamples *mat64.Dense, folds []stackmc.Fold)
+	AdvFolds(nSamples, dim int, extraSampler samplemv.Sampler) (newSamples *mat64.Dense, folds []stackmc.Fold)
 }
 
 // Folder generates folds for the given number of samples.
@@ -92,7 +91,7 @@ func (a All) Folds(nSamples int) []stackmc.Fold {
 	return folds
 }
 
-func (a All) AdvFolds(nSamples, dim int, es stackmc.Distribution) (*mat64.Dense, []stackmc.Fold) {
+func (a All) AdvFolds(nSamples, dim int, es samplemv.Sampler) (*mat64.Dense, []stackmc.Fold) {
 	folds := a.Folds(nSamples)
 	return nil, folds
 }
@@ -115,7 +114,7 @@ func (k KFold) Folds(nSamples int) []stackmc.Fold {
 	return folds
 }
 
-func (k KFold) AdvFolds(nSamples, dim int, es stackmc.Distribution) (*mat64.Dense, []stackmc.Fold) {
+func (k KFold) AdvFolds(nSamples, dim int, es samplemv.Sampler) (*mat64.Dense, []stackmc.Fold) {
 	folds := k.Folds(nSamples)
 	return nil, folds
 }
@@ -133,7 +132,7 @@ func (m MultiKFold) Folds(nSamples int) []stackmc.Fold {
 	return folds
 }
 
-func (m MultiKFold) AdvFolds(nSamples, dim int, es stackmc.Distribution) (*mat64.Dense, []stackmc.Fold) {
+func (m MultiKFold) AdvFolds(nSamples, dim int, es samplemv.Sampler) (*mat64.Dense, []stackmc.Fold) {
 	folds := m.Folds(nSamples)
 	return nil, folds
 }
@@ -144,7 +143,7 @@ type KFoldUpdateAll struct {
 	Assess bool
 }
 
-func (k KFoldUpdateAll) AdvFolds(nSamples, dim int, es stackmc.Distribution) (*mat64.Dense, []stackmc.Fold) {
+func (k KFoldUpdateAll) AdvFolds(nSamples, dim int, es samplemv.Sampler) (*mat64.Dense, []stackmc.Fold) {
 	folds := KFold{k.K}.Folds(nSamples)
 	for i := range folds {
 		if k.Update {
@@ -192,7 +191,7 @@ func (k KFoldScramble) Folds(nSamples int) []stackmc.Fold {
 	return folds
 }
 
-func (k KFoldScramble) AdvFolds(nSamples, dim int, es stackmc.Distribution) (*mat64.Dense, []stackmc.Fold) {
+func (k KFoldScramble) AdvFolds(nSamples, dim int, es samplemv.Sampler) (*mat64.Dense, []stackmc.Fold) {
 	folds := k.Folds(nSamples)
 	return nil, folds
 }
@@ -203,7 +202,7 @@ type KFoldAlphaCorrect struct {
 	IndUpdate bool
 }
 
-func (k KFoldAlphaCorrect) AdvFolds(nSamples, dim int, es stackmc.Distribution) (*mat64.Dense, []stackmc.Fold) {
+func (k KFoldAlphaCorrect) AdvFolds(nSamples, dim int, es samplemv.Sampler) (*mat64.Dense, []stackmc.Fold) {
 	folds := KFold{k.K}.Folds(nSamples)
 
 	idx := nSamples
@@ -271,7 +270,7 @@ type KFoldBoot struct {
 	IndAlpha bool
 }
 
-func (k KFoldBoot) AdvFolds(nSamples, dim int, es stackmc.Distribution) (*mat64.Dense, []stackmc.Fold) {
+func (k KFoldBoot) AdvFolds(nSamples, dim int, es samplemv.Sampler) (*mat64.Dense, []stackmc.Fold) {
 	folds := k.Folds(nSamples)
 	return nil, folds
 }
@@ -316,7 +315,7 @@ type KFoldInd struct {
 	AssessUpdateSame bool
 }
 
-func (k KFoldInd) AdvFolds(nSamples, dim int, es stackmc.Distribution) (*mat64.Dense, []stackmc.Fold) {
+func (k KFoldInd) AdvFolds(nSamples, dim int, es samplemv.Sampler) (*mat64.Dense, []stackmc.Fold) {
 	folds := KFold{k.K}.Folds(nSamples)
 	idx := nSamples
 	var samps mat64.Dense
@@ -435,7 +434,7 @@ type OneFold struct {
 	AlphaSame bool
 }
 
-func (o OneFold) AdvFolds(nSamples, dim int, es stackmc.Distribution) (*mat64.Dense, []stackmc.Fold) {
+func (o OneFold) AdvFolds(nSamples, dim int, es samplemv.Sampler) (*mat64.Dense, []stackmc.Fold) {
 	folds := make([]stackmc.Fold, 1)
 	folds[0].Update = make([]int, nSamples)
 	for i := range folds[0].Update {
@@ -507,7 +506,7 @@ func (m MultiBootstrap) Folds(nSamples int) []stackmc.Fold {
 	return folds
 }
 
-func (m MultiBootstrap) AdvFolds(nSamples, dim int, es stackmc.Distribution) (*mat64.Dense, []stackmc.Fold) {
+func (m MultiBootstrap) AdvFolds(nSamples, dim int, es samplemv.Sampler) (*mat64.Dense, []stackmc.Fold) {
 	folds := m.Folds(nSamples)
 	return nil, folds
 }
@@ -570,7 +569,7 @@ func (b Bootstrap) Folds(nSamples int) []stackmc.Fold {
 	return folds
 }
 
-func (b Bootstrap) AdvFolds(nSamples, dim int, es stackmc.Distribution) (*mat64.Dense, []stackmc.Fold) {
+func (b Bootstrap) AdvFolds(nSamples, dim int, es samplemv.Sampler) (*mat64.Dense, []stackmc.Fold) {
 	folds := b.Folds(nSamples)
 	return nil, folds
 }
@@ -598,7 +597,7 @@ func (b BootstrapInAllOut) Folds(nSamples int) []stackmc.Fold {
 	return folds
 }
 
-func (b BootstrapInAllOut) AdvFolds(nSamples, dim int, es stackmc.Distribution) (*mat64.Dense, []stackmc.Fold) {
+func (b BootstrapInAllOut) AdvFolds(nSamples, dim int, es samplemv.Sampler) (*mat64.Dense, []stackmc.Fold) {
 	folds := b.Folds(nSamples)
 	return nil, folds
 }

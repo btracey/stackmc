@@ -1,6 +1,6 @@
 // package stackmc implements the StackMC algorithm of Tracey, Wolpert, and Alonso.
 // The StackMC algorithm is described in
-//
+//https://support.apple.com/library/content/dam/edam/applecare/images/en_US/il/tm_idle.png
 //  Brendan Tracey, David Wolpert, and Juan J. Alonso.  "Using Supervised
 //  Learning to Improve Monte Carlo Integral Estimation", AIAA Journal,
 //  Vol. 51, No. 8 (2013), pp. 2015-2023.
@@ -21,7 +21,7 @@ package stackmc
 
 import (
 	"github.com/gonum/matrix/mat64"
-	"github.com/gonum/stat"
+	"github.com/gonum/stat/samplemv"
 )
 
 var (
@@ -50,20 +50,20 @@ type Settings struct {
 	// If 0, defaults to 100. If -1, will panic if not analytically integrable.
 	EstimateFitEV float64
 
-	Corrector Corrector
+	Combiner Combiner
 }
 
 // Corrector corrects the EV to each fold based on the predictions at the
 // held-out data
 type Corrector interface {
-	Correct(alpha [][]float64, uniqueMaps []map[int]int, predictions [][][]float64, d Distribution, x mat64.Matrix, fitters []Fitter, f []float64, folds []Fold, settings *Settings) []float64
+	Correct(alpha [][]float64, uniqueMaps []map[int]int, predictions [][][]float64, d samplemv.Sampler, x mat64.Matrix, fitters []Fitter, f []float64, folds []Fold, settings *Settings) []float64
 }
 
 const defaultEVMultiple = 100
 
 // A fitter can produce a Predictor based on a given set of samples.
 type Fitter interface {
-	Fit(x mat64.Matrix, f []float64, d Distribution, inds []int) Predictor
+	Fit(x mat64.Matrix, f []float64, d samplemv.Sampler, inds []int) Predictor
 }
 
 // A Predictor can predict the function value at a set of x locations, and
@@ -74,15 +74,9 @@ type Predictor interface {
 	Predict(x []float64) float64
 	// Integrable returns whether the predictor can be analytically integrated
 	// under the distribution.
-	Integrable(d Distribution) bool
+	Integrable(d samplemv.Sampler) bool
 	// ExpectedValue computes the expected value under the distribution.
-	ExpectedValue(d Distribution) float64
-}
-
-// Distribution. Needs to be able to generate a set of values so at least the
-// fitter can estimate with Monte Carlo.
-type Distribution interface {
-	Sample(x *mat64.Dense)
+	ExpectedValue(d samplemv.Sampler) float64
 }
 
 // Returns alpha per fold then per fitter
@@ -97,7 +91,7 @@ type Result struct {
 
 // Estimate estimates the expected value of the function with the given inputs.
 // Something about knownP bool for fitting the distribution.
-func Estimate(d Distribution, x mat64.Matrix, f []float64, fitters []Fitter, folds []Fold, settings *Settings) float64 {
+func Estimate(d samplemv.Sampler, x mat64.Matrix, f []float64, fitters []Fitter, folds []Fold, settings *Settings) Result {
 	checkEstimateInputs(d, x, f, fitters, folds, settings)
 
 	uniques, uniqueMaps, allTrain := findUniqueIndexs(folds)
@@ -106,40 +100,15 @@ func Estimate(d Distribution, x mat64.Matrix, f []float64, fitters []Fitter, fol
 
 	alpha := settings.AlphaComputer.ComputeAlpha(f, predictions, folds, uniqueMaps, evs)
 
-	nFolds := len(folds)
-	nFitters := len(fitters)
-	foldEVs := make([]float64, nFolds)
-	for i := 0; i < nFolds; i++ {
-		var ev float64
-		if settings.UpdateFull {
-			// Use the EV from the fit to all
-			for j := 0; j < nFitters; j++ {
-				ev += alpha[i][j] * evAll[j]
-			}
-		} else {
-			// Use the EV from this particular fold
-			for j := 0; j < nFitters; j++ {
-				ev += alpha[i][j] * evs[i][j]
-			}
-		}
-		foldEVs[i] = ev
+	if settings.Combiner == nil {
+		settings.Combiner = BasicCombiner{}
 	}
 
-	corrector := settings.Corrector
-	if corrector == nil {
-		corrector = AverageHeldOut{}
-	}
-
-	corrections := corrector.Correct(alpha, uniqueMaps, predictions, d, x, fitters, f, folds, settings)
-
-	for i, v := range corrections {
-		foldEVs[i] += v
-	}
-
-	return stat.Mean(foldEVs, nil)
+	ev, stderr := settings.Combiner.Combine(evAll, evs, alpha, uniqueMaps, predictions, d, x, fitters, f, folds, settings)
+	return Result{ev, stderr}
 }
 
-func checkEstimateInputs(d Distribution, x mat64.Matrix, f []float64, fitters []Fitter, folds []Fold, settings *Settings) {
+func checkEstimateInputs(d samplemv.Sampler, x mat64.Matrix, f []float64, fitters []Fitter, folds []Fold, settings *Settings) {
 	nSamples, _ := x.Dims()
 	if len(f) != nSamples {
 		panic(errLen)
@@ -170,7 +139,7 @@ func MCExpectedValue(f []float64, inds []int) float64 {
 
 // FitExpectedValue computes the expected value of the function based purely on
 // a fit to the function using the given samples.
-func FitExpectedValue(fit Fitter, d Distribution, x mat64.Matrix, f []float64, inds []int, evMult float64) float64 {
+func FitExpectedValue(fit Fitter, d samplemv.Sampler, x mat64.Matrix, f []float64, inds []int, evMult float64) float64 {
 	_, dim := x.Dims()
 	pred := fit.Fit(x, f, d, inds)
 	return predictorExpectedValue(pred, d, evMult, len(inds), dim)

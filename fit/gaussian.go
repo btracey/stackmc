@@ -37,8 +37,8 @@ type GaussianPred struct {
 	Normal *distmv.Normal
 }
 
-func (g GaussianPred) Prob(x []float64) float64 {
-	return g.Normal.Prob(x)
+func (g GaussianPred) LogProb(x []float64) float64 {
+	return g.Normal.LogProb(x)
 }
 
 /*

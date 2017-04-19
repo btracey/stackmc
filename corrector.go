@@ -4,11 +4,12 @@ import (
 	"math"
 
 	"github.com/gonum/matrix/mat64"
+	"github.com/gonum/stat/samplemv"
 )
 
 type AverageHeldOut struct{}
 
-func (a AverageHeldOut) Correct(alpha [][]float64, uniqueMaps []map[int]int, predictions [][][]float64, d Distribution, x mat64.Matrix, fitters []Fitter, f []float64, folds []Fold, settings *Settings) []float64 {
+func (a AverageHeldOut) Correct(alpha [][]float64, uniqueMaps []map[int]int, predictions [][][]float64, d samplemv.Sampler, x mat64.Matrix, fitters []Fitter, f []float64, folds []Fold, settings *Settings) []float64 {
 	nFitters := len(alpha[0])
 	corrections := make([]float64, len(folds))
 	for i := range folds {
@@ -19,6 +20,7 @@ func (a AverageHeldOut) Correct(alpha [][]float64, uniqueMaps []map[int]int, pre
 			predIdx := uniqueMaps[i][idx]
 			for l := 0; l < nFitters; l++ {
 				pred := predictions[i][l][predIdx]
+				// This seems wrong, truth added multiple times.
 				ev += z * (truth - alpha[i][l]*pred)
 			}
 		}
@@ -30,7 +32,7 @@ func (a AverageHeldOut) Correct(alpha [][]float64, uniqueMaps []map[int]int, pre
 // Makes a fit to the f - alpha * g using the value at the held-out data samples.
 type FitInner struct{}
 
-func (FitInner) Correct(alpha [][]float64, uniqueMaps []map[int]int, predictions [][][]float64, d Distribution, x mat64.Matrix, fitters []Fitter, f []float64, folds []Fold, settings *Settings) []float64 {
+func (FitInner) Correct(alpha [][]float64, uniqueMaps []map[int]int, predictions [][][]float64, d samplemv.Sampler, x mat64.Matrix, fitters []Fitter, f []float64, folds []Fold, settings *Settings) []float64 {
 	nFitters := len(alpha[0])
 	if nFitters != 1 {
 		panic("only coded for one fitter")
@@ -67,7 +69,7 @@ func (FitInner) Correct(alpha [][]float64, uniqueMaps []map[int]int, predictions
 // Does a fit to the error in each fold individually
 type FitInnerEach struct{}
 
-func (fi FitInnerEach) Correct(alpha [][]float64, uniqueMaps []map[int]int, predictions [][][]float64, d Distribution, x mat64.Matrix, fitters []Fitter, f []float64, folds []Fold, settings *Settings) []float64 {
+func (fi FitInnerEach) Correct(alpha [][]float64, uniqueMaps []map[int]int, predictions [][][]float64, d samplemv.Sampler, x mat64.Matrix, fitters []Fitter, f []float64, folds []Fold, settings *Settings) []float64 {
 	_, dim := x.Dims()
 	nFitters := len(alpha[0])
 	if nFitters != 1 {
@@ -100,7 +102,7 @@ func (fi FitInnerEach) Correct(alpha [][]float64, uniqueMaps []map[int]int, pred
 // is non-uniform and the same point can be held-out mulitple times.
 type StackMCRecursive struct{}
 
-func (s StackMCRecursive) Correct(alpha [][]float64, uniqueMaps []map[int]int, predictions [][][]float64, d Distribution, x mat64.Matrix, fitters []Fitter, f []float64, folds []Fold, settings *Settings) []float64 {
+func (s StackMCRecursive) Correct(alpha [][]float64, uniqueMaps []map[int]int, predictions [][][]float64, d samplemv.Sampler, x mat64.Matrix, fitters []Fitter, f []float64, folds []Fold, settings *Settings) []float64 {
 	nFitters := len(alpha[0])
 
 	newfs := make([]float64, len(f))
@@ -133,11 +135,11 @@ func (s StackMCRecursive) Correct(alpha [][]float64, uniqueMaps []map[int]int, p
 		nil, // Don't recurse again
 	}
 
-	ev := Estimate(d, x, newfs, fitters, folds, newSettings)
+	result := Estimate(d, x, newfs, fitters, folds, newSettings)
 
 	correction := make([]float64, len(folds))
 	for i := range correction {
-		correction[i] = ev
+		correction[i] = result.EV
 	}
 	return correction
 }

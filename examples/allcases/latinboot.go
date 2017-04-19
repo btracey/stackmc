@@ -10,6 +10,7 @@ import (
 
 	"github.com/btracey/stackmc"
 	"github.com/btracey/stackmc/distribution"
+	"github.com/btracey/stackmc/examples/aeroexample"
 	"github.com/btracey/stackmc/examples/smccases"
 	"github.com/btracey/stackmc/fit"
 	"github.com/btracey/stackmc/fold"
@@ -27,7 +28,7 @@ type LogProber interface {
 }
 
 type ProbDister interface {
-	stackmc.Distribution
+	samplemv.Sampler
 }
 
 var gopath string
@@ -891,8 +892,10 @@ func getRunSettings(kind string) (float64, RunSettings, ProblemSettings, []SMCSe
 			//FitPlotName:       []string{"Polynomial"},
 			Fitters: []stackmc.Fitter{
 				&fit.ControlFunc{
-					Kernel: CFKernel{
-						Alpha: [2]float64{0.1, 1},
+					Kernel: fit.CFKernelOneDWrapper{
+						CFKernel{
+							Alpha: [2]float64{0.1, 1},
+						},
 					},
 					Noise: 1e-10,
 				},
@@ -902,9 +905,9 @@ func getRunSettings(kind string) (float64, RunSettings, ProblemSettings, []SMCSe
 		trueEv := 1.0
 		rs := RunSettings{
 			MinSamples: 20,
-			MaxSamples: 1000,
-			NumSamples: 15,
-			Runs:       2000,
+			MaxSamples: 500, // 2000 is good
+			NumSamples: 8,   // 15 is good
+			Runs:       200,
 		}
 		folds := 2
 		_ = folds
@@ -922,20 +925,18 @@ func getRunSettings(kind string) (float64, RunSettings, ProblemSettings, []SMCSe
 				Folder:      fold.KFold{folds},
 				SMCSettings: smcSettings,
 			},
-			/*
-				{
-					Name:     "Kfold",
-					PlotName: "Recursive",
-					Folder:   fold.KFold{folds},
-					SMCSettings: &stackmc.Settings{
-						UpdateFull:    false,
-						Concurrent:    0,
-						AlphaComputer: stackmc.SingleAlpha{},
-						EstimateFitEV: -1,
-						Corrector:     stackmc.StackMCRecursive{},
-					},
+			{
+				Name:     "Kfold",
+				PlotName: "Recursive",
+				Folder:   fold.KFold{folds},
+				SMCSettings: &stackmc.Settings{
+					UpdateFull:    false,
+					Concurrent:    0,
+					AlphaComputer: stackmc.SingleAlpha{},
+					EstimateFitEV: -1,
+					Combiner:      stackmc.CorrectorCombiner{stackmc.StackMCRecursive{}},
 				},
-			*/
+			},
 			{
 				Name:     "Kfold",
 				PlotName: "FitInner",
@@ -945,7 +946,7 @@ func getRunSettings(kind string) (float64, RunSettings, ProblemSettings, []SMCSe
 					Concurrent:    0,
 					AlphaComputer: stackmc.SingleAlpha{},
 					EstimateFitEV: -1,
-					Corrector:     stackmc.FitInner{},
+					Combiner:      stackmc.CorrectorCombiner{stackmc.FitInner{}},
 				},
 			},
 			/*
@@ -1061,10 +1062,10 @@ func getRunSettings(kind string) (float64, RunSettings, ProblemSettings, []SMCSe
 		}
 
 		rs := RunSettings{
-			MinSamples: 40,
-			MaxSamples: 800,
+			MinSamples: 50,
+			MaxSamples: 2000,
 			NumSamples: 6,
-			Runs:       2000,
+			Runs:       500,
 		}
 		if kind == "rosengausslb30" {
 			rs.MinSamples = 30
@@ -1098,6 +1099,30 @@ func getRunSettings(kind string) (float64, RunSettings, ProblemSettings, []SMCSe
 				PlotName:    "StackMC",
 				Folder:      fold.KFold{folds},
 				SMCSettings: smcSettings,
+			},
+			{
+				Name:     "Kfold",
+				PlotName: "FitInner",
+				Folder:   fold.KFold{folds},
+				SMCSettings: &stackmc.Settings{
+					UpdateFull:    false,
+					Concurrent:    0,
+					AlphaComputer: stackmc.SingleAlpha{},
+					EstimateFitEV: -1,
+					Combiner:      stackmc.CorrectorCombiner{stackmc.FitInner{}},
+				},
+			},
+			{
+				Name:     "Kfold",
+				PlotName: "Recursive",
+				Folder:   fold.KFold{folds},
+				SMCSettings: &stackmc.Settings{
+					UpdateFull:    false,
+					Concurrent:    0,
+					AlphaComputer: stackmc.SingleAlpha{},
+					EstimateFitEV: -1,
+					Combiner:      stackmc.CorrectorCombiner{stackmc.StackMCRecursive{}},
+				},
 			},
 			/*
 				{
@@ -2066,7 +2091,7 @@ func getRunSettings(kind string) (float64, RunSettings, ProblemSettings, []SMCSe
 		}
 		trueEv := 1924.0 * float64(dim-1)
 		return trueEv, rs, ps, smcset
-	case "rosenunifhalton", "rosengausshalton":
+	case "rosenunifhalton", "rosengausshalton", "rosengausshaltondemonstrate":
 		dim := 10
 		ps := ProblemSettings{
 			Name:              "RosenUnifHalton",
@@ -2085,12 +2110,14 @@ func getRunSettings(kind string) (float64, RunSettings, ProblemSettings, []SMCSe
 		case "rosenunifhalton":
 			ps.GenDistribution = &HaltonSampler{Quantiler: getUniform(dim, -3, 3)}
 			ps.InputDistribution = getUniform(dim, -3, 3)
-		case "rosengausshalton":
+		case "rosengausshalton", "rosengausshaltondemonstrate":
 			ps.GenDistribution = &HaltonSampler{Quantiler: getIndGauss(dim, 0, 2)}
 			ps.InputDistribution = getIndGauss(dim, 0, 2)
 		}
 
-		f, err := os.Open("../matlab/matlabjson.json")
+		//f, err := os.Open("../matlab/matlabjson.json")
+		filename := filepath.Join(gopath, "data", "sfi", "stackmc", "halton", "matlabjson.json")
+		f, err := os.Open(filename)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -2121,80 +2148,106 @@ func getRunSettings(kind string) (float64, RunSettings, ProblemSettings, []SMCSe
 			EstimateFitEV: -1,
 		}
 		_ = smcSettings
-		smcset := []SMCSettings{
-			{
-				Name:     "KfoldEEA",
-				PlotName: "StackMC Updated",
-				Folder:   fold.MultiKFold{K: folds, Multi: 1},
-				SMCSettings: &stackmc.Settings{
-					UpdateFull:    false,
-					Concurrent:    0,
-					AlphaComputer: stackmc.IterativeAlpha{true},
-					EstimateFitEV: -1,
-				},
-			},
-			{
-				Name:     "KfoldEEA",
-				PlotName: "StackMC Boot",
-				Folder:   fold.MultiBootstrap{K: folds, Times: 1},
-				SMCSettings: &stackmc.Settings{
-					UpdateFull:    false,
-					Concurrent:    0,
-					AlphaComputer: stackmc.IterativeAlpha{true},
-					EstimateFitEV: -1,
-				},
-			},
-			{
-				Name:     "KfoldEEA",
-				PlotName: "StackMC Boot 10",
-				Folder:   fold.MultiBootstrap{K: folds, Times: 10},
-				SMCSettings: &stackmc.Settings{
-					UpdateFull:    false,
-					Concurrent:    0,
-					AlphaComputer: stackmc.IterativeAlpha{true},
-					EstimateFitEV: -1,
-				},
-			},
-
-			/*
-
+		var smcset []SMCSettings
+		if kind == "rosengausshaltondemonstrate" {
+			smcset = []SMCSettings{
 				{
 					Name:        "Kfold",
-					PlotName:    "SMC K-Fold",
+					PlotName:    "StackMC Original",
 					Folder:      fold.KFold{folds},
 					SMCSettings: smcSettings,
 				},
+				/*
+					{
+						Name:     "KfoldEEA",
+						PlotName: "StackMC",
+						Folder:   fold.MultiKFold{K: folds, Multi: 1},
+						SMCSettings: &stackmc.Settings{
+							UpdateFull:    false,
+							Concurrent:    0,
+							AlphaComputer: stackmc.IterativeAlpha{true},
+							EstimateFitEV: -1,
+						},
+					},
+				*/
+			}
+		} else {
+
+			smcset = []SMCSettings{
 				{
-					Name:     "KFoldBootWithGhat",
-					PlotName: "KFoldBootWithGhatNoBias",
-					Folder:   fold.KFoldBoot{K: folds, Multi: 1},
+					Name:     "KfoldEEA",
+					PlotName: "StackMC Updated",
+					Folder:   fold.MultiKFold{K: folds, Multi: 1},
 					SMCSettings: &stackmc.Settings{
 						UpdateFull:    false,
 						Concurrent:    0,
-						AlphaComputer: stackmc.FullFoldAlphaInd{false},
+						AlphaComputer: stackmc.IterativeAlpha{true},
 						EstimateFitEV: -1,
 					},
 				},
 				{
-					Name:     "KFoldBootWithGhat",
-					PlotName: "KFoldBootWithGhatBias",
-					Folder:   fold.KFoldBoot{K: folds, Multi: 1},
+					Name:     "KfoldEEA",
+					PlotName: "StackMC Boot",
+					Folder:   fold.MultiBootstrap{K: folds, Times: 1},
 					SMCSettings: &stackmc.Settings{
 						UpdateFull:    false,
 						Concurrent:    0,
-						AlphaComputer: stackmc.FullFoldAlphaInd{true},
+						AlphaComputer: stackmc.IterativeAlpha{true},
 						EstimateFitEV: -1,
 					},
 				},
-			*/
-			/*
 				{
-					Name:        "MultiBoot",
-					PlotName:    "SMC Bootstrap 10",
-					Folder:      fold.MultiBootstrap{folds, 10, false},
-					SMCSettings: smcSettings,
+					Name:     "KfoldEEA",
+					PlotName: "StackMC Boot 10",
+					Folder:   fold.MultiBootstrap{K: folds, Times: 10},
+					SMCSettings: &stackmc.Settings{
+						UpdateFull:    false,
+						Concurrent:    0,
+						AlphaComputer: stackmc.IterativeAlpha{true},
+						EstimateFitEV: -1,
+					},
 				},
-			*/
+
+				/*
+
+					{
+						Name:        "Kfold",
+						PlotName:    "SMC K-Fold",
+						Folder:      fold.KFold{folds},
+						SMCSettings: smcSettings,
+					},
+					{
+						Name:     "KFoldBootWithGhat",
+						PlotName: "KFoldBootWithGhatNoBias",
+						Folder:   fold.KFoldBoot{K: folds, Multi: 1},
+						SMCSettings: &stackmc.Settings{
+							UpdateFull:    false,
+							Concurrent:    0,
+							AlphaComputer: stackmc.FullFoldAlphaInd{false},
+							EstimateFitEV: -1,
+						},
+					},
+					{
+						Name:     "KFoldBootWithGhat",
+						PlotName: "KFoldBootWithGhatBias",
+						Folder:   fold.KFoldBoot{K: folds, Multi: 1},
+						SMCSettings: &stackmc.Settings{
+							UpdateFull:    false,
+							Concurrent:    0,
+							AlphaComputer: stackmc.FullFoldAlphaInd{true},
+							EstimateFitEV: -1,
+						},
+					},
+				*/
+				/*
+					{
+						Name:        "MultiBoot",
+						PlotName:    "SMC Bootstrap 10",
+						Folder:      fold.MultiBootstrap{folds, 10, false},
+						SMCSettings: smcSettings,
+					},
+				*/
+			}
 		}
 		var trueEv float64
 		switch kind {
@@ -2202,7 +2255,7 @@ func getRunSettings(kind string) (float64, RunSettings, ProblemSettings, []SMCSe
 			panic("unknown kind")
 		case "rosenunifhalton":
 			trueEv = 1924.0 * float64(dim-1)
-		case "rosengausshalton":
+		case "rosengausshalton", "rosengausshaltondemonstrate":
 			trueEv = 5205.0 * float64(dim-1)
 		}
 		return trueEv, rs, ps, smcset
@@ -2382,7 +2435,7 @@ func getRunSettings(kind string) (float64, RunSettings, ProblemSettings, []SMCSe
 		}
 		rs := RunSettings{
 			MinSamples: 100,
-			MaxSamples: 1000,
+			MaxSamples: 3000,
 			NumSamples: 8,
 			Runs:       2000,
 		}
@@ -2393,7 +2446,7 @@ func getRunSettings(kind string) (float64, RunSettings, ProblemSettings, []SMCSe
 			UpdateFull:    false,
 			Concurrent:    0,
 			AlphaComputer: stackmc.SingleAlpha{},
-			EstimateFitEV: 100,
+			EstimateFitEV: 10000,
 		}
 		smcset := []SMCSettings{
 			{
@@ -2402,6 +2455,126 @@ func getRunSettings(kind string) (float64, RunSettings, ProblemSettings, []SMCSe
 				Folder:      fold.KFold{folds},
 				SMCSettings: smcSettings,
 			},
+		}
+		return trueEv, rs, ps, smcset
+	case "aeroexampleinit":
+		oas := &aeroexample.OpenAeroSampler{
+			Casename: "init_opt_uncertainty",
+		}
+		oas.LoadAll()
+		dim := 10
+		ps := ProblemSettings{
+			Name:              "AeroExample",
+			MCPlotName:        "MC",
+			Dim:               dim,
+			EvalType:          FitFunc,
+			Function:          oas.Func,
+			FitEVMult:         -1,
+			GenDistribution:   oas,
+			InputDistribution: getUniform(dim, 0, 1),
+			Fitters:           []stackmc.Fitter{&fit.Polynomial{1}},
+			FitPlotName:       []string{"Polynomial"},
+		}
+		trueEv := oas.EmpiricalEV()
+		rs := RunSettings{
+			MinSamples: 35,
+			MaxSamples: 1000,
+			NumSamples: 5,
+			Runs:       2000,
+		}
+
+		folds := 5
+		_ = folds
+		//foldsf := float64(folds)
+		smcSettings := &stackmc.Settings{
+			UpdateFull:    false,
+			Concurrent:    0,
+			AlphaComputer: stackmc.SingleAlpha{},
+			EstimateFitEV: -1,
+		}
+		smcset := []SMCSettings{
+			{
+				Name:        "Kfold",
+				PlotName:    "StackMC Original",
+				Folder:      fold.KFold{folds},
+				SMCSettings: smcSettings,
+			},
+		}
+		return trueEv, rs, ps, smcset
+	case "aeroexampleinitcontrolfunc":
+		oas := &aeroexample.OpenAeroSampler{
+			Casename: "init_opt_uncertainty",
+		}
+		oas.LoadAll()
+		dim := 10
+		ps := ProblemSettings{
+			Name:              "AeroExample",
+			MCPlotName:        "MC",
+			Dim:               dim,
+			EvalType:          FitFunc,
+			Function:          oas.Func,
+			FitEVMult:         -1,
+			GenDistribution:   oas,
+			InputDistribution: getIndGauss(dim, 0, 1),
+			Fitters: []stackmc.Fitter{
+				&fit.ControlFunc{
+					Kernel: CFKernelMD{
+						Alpha: [2]float64{0.1, 1},
+					},
+					Noise: 1e-10,
+				},
+			},
+			FitPlotName: []string{"ControlFunctional"},
+		}
+		trueEv := oas.EmpiricalEV()
+		rs := RunSettings{
+			MinSamples: 50,
+			MaxSamples: 3000,
+			NumSamples: 4,
+			Runs:       50,
+		}
+		folds := 5
+		_ = folds
+		//foldsf := float64(folds)
+		smcSettings := &stackmc.Settings{
+			UpdateFull:    false,
+			Concurrent:    0,
+			AlphaComputer: stackmc.SingleAlpha{},
+			EstimateFitEV: -1,
+		}
+		smcset := []SMCSettings{
+			{
+				Name:        "Kfold",
+				PlotName:    "StackMC Original",
+				Folder:      fold.KFold{folds},
+				SMCSettings: smcSettings,
+			},
+			/*
+				{
+					Name:     "Kfold",
+					PlotName: "Recursive",
+					Folder:   fold.KFold{folds},
+					SMCSettings: &stackmc.Settings{
+						UpdateFull:    false,
+						Concurrent:    0,
+						AlphaComputer: stackmc.SingleAlpha{},
+						EstimateFitEV: -1,
+						Combiner:      stackmc.CorrectorCombiner{stackmc.StackMCRecursive{}},
+					},
+				},
+				{
+					Name:     "Kfold",
+					PlotName: "FitInner",
+					Folder:   fold.KFold{folds},
+					SMCSettings: &stackmc.Settings{
+						UpdateFull:    false,
+						Concurrent:    0,
+						AlphaComputer: stackmc.SingleAlpha{},
+						EstimateFitEV: -1,
+						Combiner:      stackmc.CorrectorCombiner{stackmc.FitInner{}},
+					},
+				},
+			*/
 		}
 		return trueEv, rs, ps, smcset
 	}
@@ -2436,7 +2609,7 @@ type ProblemSettings struct {
 	// Kind used to generate the samples and as input to StackMC. Frequently
 	// the same, but different in latin hypercube (or whatever).
 	// Probably can replace this and just be smarter.
-	GenDistribution   stackmc.Distribution
+	GenDistribution   samplemv.Sampler
 	InputDistribution ProbDister
 	Fitters           []stackmc.Fitter
 	Function          func([]float64) float64
@@ -2452,7 +2625,7 @@ type SMCSettings struct {
 	Name         string
 	PlotName     string
 	Folder       fold.AdvFolder
-	ExtraSampler stackmc.Distribution // if folder needs extra samples
+	ExtraSampler samplemv.Sampler // if folder needs extra samples
 
 	SMCSettings *stackmc.Settings
 }
@@ -2564,7 +2737,8 @@ func EvaluateSMC(nSamples int, p ProblemSettings, smcSettings []SMCSettings) (ev
 			panic("unknown eval type")
 		case FitFunc:
 			// Run StackMC with these settings and new values.
-			evsmc = stackmc.Estimate(p.InputDistribution, smcSamples, smcFs, p.Fitters, folds, smcSettings[i].SMCSettings)
+			result := stackmc.Estimate(p.InputDistribution, smcSamples, smcFs, p.Fitters, folds, smcSettings[i].SMCSettings)
+			evsmc = result.EV
 		case FitDist:
 			if len(p.FitDistribution) != 1 {
 				panic("multiple distribution fits not coded")
@@ -2617,13 +2791,64 @@ func (h HaltonSampler) Sample(m *mat64.Dense) {
 	}
 }
 
+type CFKernelMD struct {
+	Alpha [2]float64
+}
+
+func (c CFKernelMD) Distance(x, y []float64) float64 {
+	dist := floats.Distance(x, y, 2)
+	a2 := c.Alpha[1]
+	t := -1 / (2 * a2 * a2)
+	return c.R(x) * c.R(y) * math.Exp(t*dist*dist)
+}
+
+func (c CFKernelMD) Deriv(deriv, x, y []float64) []float64 {
+	if len(x) != len(y) {
+		panic("length mismatch")
+	}
+	if deriv == nil {
+		deriv = make([]float64, len(x))
+	}
+	a1 := c.Alpha[0]
+	a2 := c.Alpha[1]
+	k := c.Distance(x, y)
+	for i, v := range x {
+		deriv[i] = k * (-2*a1*v*c.R(x) - (v-y[i])/(a2*a2))
+	}
+	return deriv
+}
+
+func (c CFKernelMD) Laplacian(x, y []float64) float64 {
+	a1 := c.Alpha[0]
+	a2 := c.Alpha[1]
+
+	ia22 := 1 / (a2 * a2)
+
+	rx := c.R(x)
+	ry := c.R(y)
+	k := c.Distance(x, y)
+
+	var laplacian float64
+	for i := range x {
+		t := (-2*a1*x[i]*rx - (x[i]-y[i])*ia22) * (-2*a1*y[i]*ry - (y[i]-x[i])*ia22)
+		t += ia22
+		laplacian += t * k
+	}
+	return laplacian
+}
+
+func (c CFKernelMD) R(x []float64) float64 {
+	dist := floats.Norm(x, 2)
+	return 1 / (1 + c.Alpha[0]*dist*dist)
+}
+
 // Kernel used in Control Functionals for Monte Carlo integration.
 type CFKernel struct {
 	Alpha [2]float64
 }
 
 func (c CFKernel) Distance(x, y float64) float64 {
-	//a1 := c.Alpha[0]
+	// (1/(1 + a1*||x||^2)) * (1/(1 + a1*||x'||^2)) * exp(-(2*a_2^2)^-1 * ||x-x'||^2)
 	a2 := c.Alpha[1]
 	dist := x - y
 	second := -dist * dist / (2 * a2 * a2)

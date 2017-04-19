@@ -6,7 +6,9 @@ import (
 
 	"github.com/btracey/stackmc"
 	"github.com/btracey/stackmc/distribution"
+	"github.com/gonum/floats"
 	"github.com/gonum/matrix/mat64"
+	"github.com/gonum/stat/samplemv"
 )
 
 type CFKernelOneD interface {
@@ -15,18 +17,50 @@ type CFKernelOneD interface {
 	Hessian(x, y float64) float64
 }
 
+type CFKernelOneDWrapper struct {
+	CFKernelOneD
+}
+
+func (c CFKernelOneDWrapper) Distance(x, y []float64) float64 {
+	if len(x) != 1 {
+		panic("bad size")
+	}
+	return c.CFKernelOneD.Distance(x[0], y[0])
+}
+
+func (c CFKernelOneDWrapper) Deriv(deriv, x, y []float64) []float64 {
+	if len(x) != 1 {
+		panic("bad size")
+	}
+	if deriv == nil {
+		deriv = make([]float64, 1)
+	}
+	deriv[0] = c.CFKernelOneD.Deriv(x[0], y[0])
+	return deriv
+}
+
+func (c CFKernelOneDWrapper) Laplacian(x, y []float64) float64 {
+	if len(x) != 1 {
+		panic("bad size")
+	}
+	return c.CFKernelOneD.Hessian(x[0], y[0])
+}
+
 // ControlFunc implements the estimator based on
 //  Control Functionals for Monte Carlo Integration (Oates, Girolami, Chopin)
 type ControlFunc struct {
-	Kernel CFKernelOneD
+	Kernel CFKernel
 	Noise  float64
 }
 
-func (cont ControlFunc) Fit(x mat64.Matrix, f []float64, d stackmc.Distribution, inds []int) stackmc.Predictor {
+type CFKernel interface {
+	Distance(x, y []float64) float64
+	Deriv(deriv, x, y []float64) []float64 // dk/dx at {x,y}
+	Laplacian(x, y []float64) float64      // d^2 k / dx dy
+}
+
+func (cont ControlFunc) Fit(x mat64.Matrix, f []float64, d samplemv.Sampler, inds []int) stackmc.Predictor {
 	_, c := x.Dims()
-	if c != 1 {
-		panic("only coded for one-D")
-	}
 	subf := make([]float64, len(inds))
 	for i, v := range inds {
 		subf[i] = f[v]
@@ -35,19 +69,22 @@ func (cont ControlFunc) Fit(x mat64.Matrix, f []float64, d stackmc.Distribution,
 	for i, v := range inds {
 		subdata.SetRow(i, mat64.Row(nil, v, x))
 	}
-	return &ControlFuncPredictor{data: subdata,
+	return &ControlFuncPredictor{
+		data:   subdata,
 		f:      subf,
 		kernel: cont.Kernel,
 		noise:  cont.Noise,
+		dist:   d,
 	}
 }
 
 type ControlFuncPredictor struct {
 	data   *mat64.Dense
 	f      []float64
-	kernel CFKernelOneD
-	noise  float64
-	dist   stackmc.Distribution
+	kernel CFKernel
+	//kmd    CFKernel
+	noise float64
+	dist  samplemv.Sampler
 
 	once      sync.Once
 	k0        *mat64.SymDense
@@ -57,6 +94,7 @@ type ControlFuncPredictor struct {
 	ev        float64
 }
 
+/*
 func (c *ControlFuncPredictor) Predict(x []float64) float64 {
 	distsi := c.dist.(distribution.ScoreInputer)
 	c.setk0calcev(distsi)
@@ -75,21 +113,37 @@ func (c *ControlFuncPredictor) Predict(x []float64) float64 {
 	pred := first + (1-second)*c.ev
 	return pred
 }
+*/
 
-func (c *ControlFuncPredictor) Integrable(dist stackmc.Distribution) bool {
+func (c *ControlFuncPredictor) Predict(x []float64) float64 {
+	distsi := c.dist.(distribution.ScoreInputer)
+	c.setk0calcev(distsi)
+
+	// Set k1
+	k1 := mat64.NewVector(len(c.f), nil)
+	for i := 0; i < len(c.f); i++ {
+		xi := c.data.RawRowView(i)
+		v := c.calculateKernel(xi, x, distsi)
+		k1.SetVec(i, v)
+	}
+
+	// fhat = k_1 * (k0)^-1 f_0 + (1 - k1 * (k0)^-1 1)(ev)
+	first := mat64.Dot(k1, c.cholk0f0)
+	second := mat64.Dot(k1, c.cholk0one)
+	pred := first + (1-second)*c.ev
+	return pred
+}
+
+func (c *ControlFuncPredictor) Integrable(dist samplemv.Sampler) bool {
 	_ = dist.(distribution.ScoreInputer)
 	return true
 }
 
-func (c *ControlFuncPredictor) ExpectedValue(dist stackmc.Distribution) float64 {
+func (c *ControlFuncPredictor) ExpectedValue(dist samplemv.Sampler) float64 {
 	// Control Functionals for Monte Carlo Integration by Oates, Girolami and Chopin.
 	distsi, ok := dist.(distribution.ScoreInputer)
 	if !ok {
 		panic("bad score inputter")
-	}
-	_, n := c.data.Dims()
-	if n != 1 {
-		panic("coded 1d")
 	}
 	c.setk0calcev(distsi)
 	// done this way because Predict also needs these values
@@ -99,13 +153,15 @@ func (c *ControlFuncPredictor) ExpectedValue(dist stackmc.Distribution) float64 
 func (c *ControlFuncPredictor) setk0calcev(distsi distribution.ScoreInputer) {
 	c.once.Do(func() {
 		// Section 2.3.1
-		//  k_0(x,x') = d^2k / d(x)dx' k(x,x') + u(x) dk/dx' + u(x') dk/dx + u(x)u(x')k(x,x')
+		//  k_0(x,x') = d^2 / dxdx' k(x,x') + u(x) dk/dx' + u(x') dk/dx + u(x)u(x')k(x,x')
 		m, _ := c.data.Dims()
 		ko := mat64.NewSymDense(m, nil)
 		for i := 0; i < m; i++ {
 			for j := i; j < m; j++ {
-				xi := c.data.At(i, 0)
-				xj := c.data.At(j, 0)
+				//xi := c.data.At(i, 0)
+				//xj := c.data.At(j, 0)
+				xi := c.data.RawRowView(i)
+				xj := c.data.RawRowView(j)
 				v := c.calculateKernel(xi, xj, distsi)
 				if i == j {
 					v += c.noise
@@ -114,12 +170,6 @@ func (c *ControlFuncPredictor) setk0calcev(distsi distribution.ScoreInputer) {
 			}
 		}
 		c.k0 = ko
-
-		/*
-			fmt.Println(c.data)
-			fmt.Printf("%0.4v\n", mat64.Formatted(c.k0))
-			os.Exit(1)
-		*/
 
 		// Set EV
 		// Numerator: 1^T (K_0)^-1 * f_0
@@ -159,6 +209,7 @@ func (c *ControlFuncPredictor) setk0calcev(distsi distribution.ScoreInputer) {
 	})
 }
 
+/*
 func (c *ControlFuncPredictor) calculateKernel(xi, xj float64, dist distribution.ScoreInputer) float64 {
 	k := c.kernel.Distance(xi, xj)
 	kdxi := c.kernel.Deriv(xi, xj)
@@ -170,4 +221,18 @@ func (c *ControlFuncPredictor) calculateKernel(xi, xj float64, dist distribution
 	//fmt.Println(k, kdxi, kdxj, kh, uxi, uxj)
 
 	return kh + uxi*kdxj + uxj*kdxi + uxi*uxj*k
+}
+*/
+
+func (c *ControlFuncPredictor) calculateKernel(xi, xj []float64, dist distribution.ScoreInputer) float64 {
+	//  k_0(x,x') = ∇^2 k(x,x') + u(x) dk/dx' + u(x') dk/dx + u(x)u(x')k(x,x')
+	k := c.kernel.Distance(xi, xj)
+	kdxi := c.kernel.Deriv(nil, xi, xj)
+	kdxj := c.kernel.Deriv(nil, xj, xi)
+	kh := c.kernel.Laplacian(xi, xj)
+
+	uxi := dist.ScoreInput(nil, xi)
+	uxj := dist.ScoreInput(nil, xj)
+
+	return kh + floats.Dot(uxi, kdxj) + floats.Dot(uxj, kdxi) + floats.Dot(uxi, uxj)*k
 }

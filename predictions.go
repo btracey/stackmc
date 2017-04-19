@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/gonum/matrix/mat64"
+	"github.com/gonum/stat/samplemv"
 )
 
 // uniquePredMaps returns the unique indices that need to be predicted per fold
@@ -65,7 +66,7 @@ func findUniqueIndexs(folds []Fold) (uniques [][]int, uniqueMaps []map[int]int, 
 // Indexed by [fold][fitter] for two-element ones.
 // Indexed by [fold][fitter][point] for the predictions.
 func trainAndPredict(allTrain []int, uniques [][]int, x mat64.Matrix, f []float64,
-	folds []Fold, fitters []Fitter, d Distribution, settings *Settings) (
+	folds []Fold, fitters []Fitter, d samplemv.Sampler, settings *Settings) (
 	predAll []Predictor, evAll []float64, preds [][]Predictor, evs [][]float64, predictions [][][]float64) {
 	nFolds := len(folds)
 	nFit := len(fitters)
@@ -127,7 +128,7 @@ func trainAndPredict(allTrain []int, uniques [][]int, x mat64.Matrix, f []float6
 	return
 }
 
-func predictorExpectedValue(pred Predictor, d Distribution, mul float64, number, dim int) float64 {
+func predictorExpectedValue(pred Predictor, d samplemv.Sampler, mul float64, number, dim int) float64 {
 	if pred.Integrable(d) {
 		return pred.ExpectedValue(d)
 	}

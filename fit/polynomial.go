@@ -8,6 +8,7 @@ import (
 	"github.com/btracey/stackmc/distribution"
 	"github.com/gonum/floats"
 	"github.com/gonum/matrix/mat64"
+	"github.com/gonum/stat/samplemv"
 )
 
 // Polynomial fitter in go. Forms a fit to the non-cross terms
@@ -17,7 +18,7 @@ type Polynomial struct {
 }
 
 // Fit fits a polynomial to the data samples
-func (p *Polynomial) Fit(x mat64.Matrix, f []float64, d stackmc.Distribution, inds []int) stackmc.Predictor {
+func (p *Polynomial) Fit(x mat64.Matrix, f []float64, d samplemv.Sampler, inds []int) stackmc.Predictor {
 	_, nDim := x.Dims()
 	nTerms := 1 + p.Order*nDim
 	polymat := mat64.NewDense(len(inds), nTerms, nil)
@@ -79,7 +80,7 @@ func (p PolyPred) Predict(x []float64) float64 {
 	return floats.Dot(terms, p.alpha)
 }
 
-func (p PolyPred) Integrable(dist stackmc.Distribution) bool {
+func (p PolyPred) Integrable(dist samplemv.Sampler) bool {
 	switch dist.(type) {
 	case distribution.Uniform, distribution.IndependentGaussian:
 		return true
@@ -88,7 +89,7 @@ func (p PolyPred) Integrable(dist stackmc.Distribution) bool {
 	}
 }
 
-func (p PolyPred) ExpectedValue(dist stackmc.Distribution) float64 {
+func (p PolyPred) ExpectedValue(dist samplemv.Sampler) float64 {
 	//switch t := p.dist.(type) {
 	switch t := dist.(type) {
 	default:
