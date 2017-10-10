@@ -27,7 +27,7 @@ type Predictor interface {
 	// Predict estimates the value of the function at the given x location.
 	Predict(x []float64) float64
 	// ExpectedValue computes the expected value under the distribution.
-	ExpectedValue(d distmv.RandLogProber) float64
+	ExpectedValue(p distmv.RandLogProber) float64
 }
 
 // Polynomial is a Fitter that fits a polynomial to the data. The Polynomial fit
