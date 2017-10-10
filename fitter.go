@@ -43,12 +43,12 @@ type Polynomial struct {
 }
 
 // Fit fits a polynomial to the data samples
-func (p *Polynomial) Fit(x mat.Matrix, f, weights []float64, inds []int) Predictor {
+func (p *Polynomial) Fit(xs mat.Matrix, fs, weights []float64, inds []int) Predictor {
 
-	_, nDim := x.Dims()
+	_, nDim := xs.Dims()
 	coeffs := make([]float64, 1+3*nDim)
 	t := polyTermer{Order: p.Order}
-	beta := leastSquaresCoeffs(x, f, weights, inds, t, coeffs)
+	beta := leastSquaresCoeffs(xs, fs, weights, inds, t, coeffs)
 
 	pred := &PolyPred{
 		beta:  beta,
@@ -73,8 +73,8 @@ func (p PolyPred) Predict(x []float64) float64 {
 	return floats.Dot(terms, p.beta)
 }
 
-func (p PolyPred) ExpectedValue(dist distmv.RandLogProber) float64 {
-	switch t := dist.(type) {
+func (poly PolyPred) ExpectedValue(p distmv.RandLogProber) float64 {
+	switch t := p.(type) {
 	default:
 		panic("unsuported distribution for Polynomial")
 	case *distmv.Uniform:
@@ -84,13 +84,13 @@ func (p PolyPred) ExpectedValue(dist distmv.RandLogProber) float64 {
 		for i := 0; i < dim; i++ {
 			sizeSpace *= bounds[i].Max - bounds[i].Min
 		}
-		integral := sizeSpace * p.beta[0]
-		for i := 0; i < p.order; i++ {
+		integral := sizeSpace * poly.beta[0]
+		for i := 0; i < poly.order; i++ {
 			for j := 0; j < dim; j++ {
 				max := bounds[j].Max
 				min := bounds[j].Min
 				pow := float64(i + 2) // 1 for order offset and 1 from integral
-				inc := p.beta[1+i*dim+j] * sizeSpace / (max - min) *
+				inc := poly.beta[1+i*dim+j] * sizeSpace / (max - min) *
 					(1.0 / pow) * (math.Pow(max, pow) - math.Pow(min, pow))
 				integral += inc
 			}
@@ -98,11 +98,11 @@ func (p PolyPred) ExpectedValue(dist distmv.RandLogProber) float64 {
 		return integral / sizeSpace
 	case *distmv.Normal:
 		dim := t.Dim()
-		if p.order > 3 {
+		if poly.order > 3 {
 			panic("Gaussian not programmed with order > 3")
 		}
 		// The expected value from the constant term
-		ev := p.beta[0]
+		ev := poly.beta[0]
 
 		mu := t.Mean(nil)
 		sigma := t.CovarianceMatrix(nil)
@@ -115,9 +115,9 @@ func (p PolyPred) ExpectedValue(dist distmv.RandLogProber) float64 {
 			}
 		}
 
-		for i := 0; i < p.order; i++ {
+		for i := 0; i < poly.order; i++ {
 			for j := 0; j < dim; j++ {
-				a := p.beta[1+i*dim+j]
+				a := poly.beta[1+i*dim+j]
 				m := mu[j]
 				s := math.Sqrt(sigma.At(j, j))
 				switch i + 1 {
@@ -199,9 +199,9 @@ func (fp FourPred) Predict(x []float64) float64 {
 	return floats.Dot(terms, fp.beta)
 }
 
-func (fp FourPred) ExpectedValue(dist distmv.RandLogProber) float64 {
+func (fp FourPred) ExpectedValue(p distmv.RandLogProber) float64 {
 	//switch t := p.dist.(type) {
-	switch t := dist.(type) {
+	switch t := p.(type) {
 	default:
 		panic("unsuported distribution for Polynomial")
 	case *distmv.Uniform:
