@@ -45,6 +45,7 @@ package stackmc
 // which takes in the generation distribution and outputs new function values?
 
 import (
+	"fmt"
 	"math"
 
 	"gonum.org/v1/gonum/mat"
@@ -94,6 +95,18 @@ type Result struct {
 	// TODO(btracey): Are more returns needed?
 }
 
+// FitError reports an error during training by one of the fits. If the Fold
+// is -1, it means the error was during training to all.
+type FitError struct {
+	Fit  int
+	Fold int
+	Err  error
+}
+
+func (f FitError) Error() string {
+	return fmt.Sprintf("fit %d fold %d errored: %v", f.Fit, f.Fold, f.Err)
+}
+
 // Estimate estimates the expected value of the function f under the distribution p
 //  f̃ ≈ f̂ = \int_x f(x) p(x) dx.
 // with the given {x,f(x)} samples. This estimation procedure is performed with
@@ -114,7 +127,7 @@ type Result struct {
 // The interface choice is to help custom implementations (for example to
 // find the expected value of a fit using sampling), and for clarity that the
 // argument is intended to be a distribution.
-func Estimate(xs mat.Matrix, fs, weights []float64, p distmv.RandLogProber, fitters []Fitter, folds []Fold, settings *Settings) Result {
+func Estimate(xs mat.Matrix, fs, weights []float64, p distmv.RandLogProber, fitters []Fitter, folds []Fold, settings *Settings) (*Result, error) {
 	nSamples, _ := xs.Dims()
 
 	if settings == nil {
@@ -146,7 +159,10 @@ func Estimate(xs mat.Matrix, fs, weights []float64, p distmv.RandLogProber, fitt
 
 	uniquePreds := FindUniqueIdxs(folds, len(fitters))
 
-	evAll, evs, fps := trainAndPredict(uniquePreds, xs, fs, weights, folds, fitters, p, settings.PredictFull, settings.KeepFits)
+	evAll, evs, fps, err := trainAndPredict(uniquePreds, xs, fs, weights, folds, fitters, p, settings.PredictFull, settings.KeepFits)
+	if err != nil {
+		return nil, err
+	}
 
 	alphaComputer := settings.AlphaComputer
 	if alphaComputer == nil {
@@ -161,7 +177,7 @@ func Estimate(xs mat.Matrix, fs, weights []float64, p distmv.RandLogProber, fitt
 	}
 	ev := combiner.Combine(xs, fs, weights, p, folds, evAll, evs, alpha, fps)
 
-	return Result{EV: ev}
+	return &Result{EV: ev}, nil
 }
 
 // PredictIndices is a struct for the unique indices that need to be predicted
@@ -243,9 +259,9 @@ func FindAllTrain(folds []Fold) []int {
 // trainAndPredict creates the fitters from each of the testing sets, as well
 // as the fit to all of the data if necessary. It then predicts the value
 // for all of the unique indices for each fold, and stores the data in the
-// respective FoldPredictor.
+// respective FoldPredictor. If any of the fits errors, the first error is returned.
 func trainAndPredict(pis []PredictIndices, xs mat.Matrix, fs, weights []float64,
-	folds []Fold, fitters []Fitter, p distmv.RandLogProber, predictFull, keepFits bool) (evAll []float64, evs [][]float64, fps []FoldPrediction) {
+	folds []Fold, fitters []Fitter, p distmv.RandLogProber, predictFull, keepFits bool) (evAll []float64, evs [][]float64, fps []FoldPrediction, err error) {
 
 	nFolds := len(folds)
 	nFit := len(fitters)
@@ -273,23 +289,16 @@ func trainAndPredict(pis []PredictIndices, xs mat.Matrix, fs, weights []float64,
 		fps[i].Predictions = predictions
 	}
 
-	// Train on all the indices if necessary.
-	if predictFull {
-		evAll = make([]float64, nFit)
-		allTrain := FindAllTrain(folds)
-		for i := range evAll {
-			pred := fitters[i].Fit(xs, fs, weights, allTrain)
-			evAll[i] = pred.ExpectedValue(p)
-		}
-	}
-
 	// Train each fitter individually and make predictions.
 	for i := range folds {
 		for j := range fitters {
 			fold := folds[i]
 			fitter := fitters[j]
 
-			pred := fitter.Fit(xs, fs, weights, fold.Train)
+			pred, err := fitter.Fit(xs, fs, weights, fold.Train)
+			if err != nil {
+				return nil, nil, nil, FitError{Fit: j, Fold: i, Err: err}
+			}
 			if keepFits {
 				fps[i].Predictors[j] = pred
 			}
@@ -301,5 +310,19 @@ func trainAndPredict(pis []PredictIndices, xs mat.Matrix, fs, weights []float64,
 			evs[i][j] = pred.ExpectedValue(p)
 		}
 	}
-	return evAll, evs, fps
+
+	// Train on all the indices if necessary.
+	if predictFull {
+		evAll = make([]float64, nFit)
+		allTrain := FindAllTrain(folds)
+		for i := range evAll {
+			pred, err := fitters[i].Fit(xs, fs, weights, allTrain)
+			if err != nil {
+				return nil, nil, nil, FitError{Fit: i, Fold: -1, Err: err}
+			}
+			evAll[i] = pred.ExpectedValue(p)
+		}
+	}
+
+	return evAll, evs, fps, nil
 }

@@ -16,7 +16,7 @@ import (
 // specified by inds. Specifically, all of the available data is passed to Fitter,
 // but only the samples specified in inds should be used.
 type Fitter interface {
-	Fit(xs mat.Matrix, fs, weights []float64, inds []int) Predictor
+	Fit(xs mat.Matrix, fs, weights []float64, inds []int) (Predictor, error)
 }
 
 // A Predictor can predict the function value at a set of x locations, and
@@ -41,12 +41,12 @@ type Polynomial struct {
 }
 
 // Fit fits a polynomial to the data samples
-func (p *Polynomial) Fit(xs mat.Matrix, fs, weights []float64, inds []int) Predictor {
+func (p *Polynomial) Fit(xs mat.Matrix, fs, weights []float64, inds []int) (Predictor, error) {
 	_, nDim := xs.Dims()
 	t := polyTermer{Order: p.Order}
 	beta, err := lsq.Coeffs(xs, fs, weights, inds, t)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 
 	pred := &PolyPred{
@@ -54,7 +54,7 @@ func (p *Polynomial) Fit(xs mat.Matrix, fs, weights []float64, inds []int) Predi
 		order: p.Order,
 		dim:   nDim,
 	}
-	return pred
+	return pred, nil
 }
 
 type PolyPred struct {
@@ -162,7 +162,7 @@ type Fourier struct {
 	Bounds []distmv.Bound
 }
 
-func (fr *Fourier) Fit(xs mat.Matrix, fs, weights []float64, inds []int) Predictor {
+func (fr *Fourier) Fit(xs mat.Matrix, fs, weights []float64, inds []int) (Predictor, error) {
 	if weights != nil {
 		panic("fourier: not coded for weighted data")
 	}
@@ -172,13 +172,13 @@ func (fr *Fourier) Fit(xs mat.Matrix, fs, weights []float64, inds []int) Predict
 	}
 	beta, err := lsq.Coeffs(xs, fs, weights, inds, t)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 	return FourPred{
 		beta:   beta,
 		order:  fr.Order,
 		bounds: fr.Bounds,
-	}
+	}, nil
 }
 
 type FourPred struct {
