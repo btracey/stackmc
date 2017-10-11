@@ -3,14 +3,12 @@ package stackmc
 import (
 	"math"
 
+	"github.com/btracey/stackmc/lsq"
+
 	"gonum.org/v1/gonum/floats"
 	"gonum.org/v1/gonum/mat"
 	"gonum.org/v1/gonum/stat/distmv"
 )
-
-type termer interface {
-	Terms(terms, x []float64)
-}
 
 // TODO(btracey): A wrapper for non-integrable distribution/fitter combos.
 
@@ -44,11 +42,12 @@ type Polynomial struct {
 
 // Fit fits a polynomial to the data samples
 func (p *Polynomial) Fit(xs mat.Matrix, fs, weights []float64, inds []int) Predictor {
-
 	_, nDim := xs.Dims()
-	coeffs := make([]float64, 1+3*nDim)
 	t := polyTermer{Order: p.Order}
-	beta := leastSquaresCoeffs(xs, fs, weights, inds, t, coeffs)
+	beta, err := lsq.Coeffs(xs, fs, weights, inds, t)
+	if err != nil {
+		panic(err)
+	}
 
 	pred := &PolyPred{
 		beta:  beta,
@@ -140,6 +139,10 @@ type polyTermer struct {
 	Order int
 }
 
+func (p polyTermer) NumTerms(dim int) int {
+	return 1 + p.Order*dim
+}
+
 // puts in  1, x_1, x_2, ... x_n , x_1^2, ..., x_n^2, ... , x_1^order, ..., x_n^order
 func (p polyTermer) Terms(terms, x []float64) {
 	dim := len(x)
@@ -167,10 +170,10 @@ func (fr *Fourier) Fit(xs mat.Matrix, fs, weights []float64, inds []int) Predict
 		Order:  fr.Order,
 		Bounds: fr.Bounds,
 	}
-	_, dim := xs.Dims()
-	nCoeff := 1 + fr.Order*dim*2
-	coeffs := make([]float64, nCoeff)
-	beta := leastSquaresCoeffs(xs, fs, weights, inds, t, coeffs)
+	beta, err := lsq.Coeffs(xs, fs, weights, inds, t)
+	if err != nil {
+		panic(err)
+	}
 	return FourPred{
 		beta:   beta,
 		order:  fr.Order,
@@ -227,6 +230,10 @@ type fourierTermer struct {
 	Bounds []distmv.Bound
 }
 
+func (ft fourierTermer) NumTerms(dim int) int {
+	return 1 + ft.Order*dim*2
+}
+
 func (ft fourierTermer) Terms(terms, x []float64) {
 	order := ft.Order
 	bounds := ft.Bounds
@@ -247,44 +254,4 @@ func (ft fourierTermer) Terms(terms, x []float64) {
 			terms[1+order*dim+j*dim+i] = cos
 		}
 	}
-}
-
-func leastSquaresCoeffs(xs mat.Matrix, fs, weights []float64, inds []int, t termer, coeffs []float64) (beta []float64) {
-	_, nDim := xs.Dims()
-	nTerms := len(coeffs)
-	A := mat.NewDense(len(inds), nTerms, nil)
-	terms := make([]float64, nTerms)
-	row := make([]float64, nDim)
-	for i, idx := range inds {
-		mat.Row(row, idx, xs)
-		t.Terms(terms, row)
-		A.SetRow(i, terms)
-	}
-
-	b := mat.NewVecDense(len(inds), nil)
-	for i, idx := range inds {
-		b.SetVec(i, fs[idx])
-	}
-
-	if weights != nil {
-		// If weights is non-nil, need to do weighted least squares.
-		// Need to mulitpy both x and f by sqrt(weight)
-		for i, idx := range inds {
-			sw := math.Sqrt(weights[idx])
-			row := A.RawRowView(i)
-			for j := range row {
-				row[j] *= sw
-			}
-			v := b.At(i, 0)
-			b.SetVec(i, v*sw)
-		}
-	}
-
-	beta = make([]float64, nTerms)
-	betaVec := mat.NewVecDense(len(beta), beta)
-	err := betaVec.SolveVec(A, b)
-	if err != nil {
-		panic("error fitting: " + err.Error())
-	}
-	return beta
 }
