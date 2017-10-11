@@ -2,6 +2,7 @@ package stackmc_test
 
 import (
 	"fmt"
+	"log"
 	"math"
 	"math/rand"
 
@@ -51,7 +52,10 @@ func ExampleRosengauss() {
 	// Estimate the expected value.
 	fitter := &stackmc.Polynomial{Order: 3}
 	fitters := []stackmc.Fitter{fitter}
-	result := stackmc.Estimate(xs, fs, nil, p, fitters, nil, nil)
+	result, err := stackmc.Estimate(xs, fs, nil, p, fitters, nil, nil)
+	if err != nil {
+		log.Fatal(err)
+	}
 	evSMC := result.EV
 
 	// Compare with Monte Carlo.
@@ -62,7 +66,10 @@ func ExampleRosengauss() {
 	for i := range inds {
 		inds[i] = i
 	}
-	pred := fitter.Fit(xs, fs, nil, inds)
+	pred, err := fitter.Fit(xs, fs, nil, inds)
+	if err != nil {
+		log.Fatal(err)
+	}
 	evFit := pred.ExpectedValue(p)
 
 	fmt.Printf("Monte Carlo Error: %0.4v\n", math.Abs(evMC-evTrue))
