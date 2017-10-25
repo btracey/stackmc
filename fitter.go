@@ -28,6 +28,56 @@ type Predictor interface {
 	ExpectedValue(p distmv.RandLogProber) float64
 }
 
+// FitMCEV wraps a Fitter for when the fit is not analytically integrable under
+// the probability distribution. It returns a Predictor who estimates the expected
+// value given a number of samples
+type FitMCEV struct {
+	// Fixed sets the meaning of Samples. If Fixed is false, the Samples value
+	// is a multiplier on the number of training samples.
+	Fixed bool
+	// Number of samples. See Fixed for meaning.
+	Samples int
+
+	Fitter Fitter
+}
+
+func (fitmc FitMCEV) Fit(xs mat.Matrix, fs, weights []float64, inds []int) (Predictor, error) {
+	pred, err := fitmc.Fitter.Fit(xs, fs, weights, inds)
+	if pred == nil && err != nil {
+		return pred, err
+	}
+	_, dim := xs.Dims()
+	nSamples := fitmc.Samples
+	if !fitmc.Fixed {
+		nSamples *= len(inds)
+	}
+	return PredMCEV{
+		dim:       dim,
+		samples:   nSamples,
+		Predictor: pred,
+	}, err
+}
+
+type PredMCEV struct {
+	dim     int
+	samples int
+	Predictor
+}
+
+func (pred PredMCEV) ExpectedValue(p distmv.RandLogProber) float64 {
+	if pred.samples == 0 {
+		panic("no samples to estimate expected value")
+	}
+	var ev float64
+	x := make([]float64, pred.dim)
+	for i := 0; i < pred.samples; i++ {
+		p.Rand(x)
+		ev += pred.Predict(x)
+	}
+	ev /= float64(pred.samples)
+	return ev
+}
+
 // Polynomial is a Fitter that fits a polynomial to the data. The Polynomial fit
 // usse all of the individual terms up to order, but none of the cross-terms.
 // That is, Polynomial makes a fit
