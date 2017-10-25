@@ -59,16 +59,5 @@ func Coeffs(xs mat.Matrix, fs, weights []float64, inds []int, t Termer) (beta []
 	beta = make([]float64, nTerms)
 	betaVec := mat.NewVecDense(len(beta), beta)
 	err = betaVec.SolveVec(A, b)
-	/*
-		if err != nil {
-			for _, idx := range inds {
-				row := mat.Row(nil, idx, xs)
-				fmt.Println(idx, row)
-			}
-			r, c := A.Dims()
-			fmt.Println("r", r, "c", c)
-			btutil.PrintMat("A", A)
-		}
-	*/
 	return beta, err
 }
