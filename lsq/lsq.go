@@ -9,6 +9,7 @@ package lsq
 import (
 	"math"
 
+	"github.com/btracey/btutil"
 	"gonum.org/v1/gonum/mat"
 )
 
@@ -59,5 +60,8 @@ func Coeffs(xs mat.Matrix, fs, weights []float64, inds []int, t Termer) (beta []
 	beta = make([]float64, nTerms)
 	betaVec := mat.NewVecDense(len(beta), beta)
 	err = betaVec.SolveVec(A, b)
+	if err != nil {
+		btutil.PrintMat("A", A)
+	}
 	return beta, err
 }

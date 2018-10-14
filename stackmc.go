@@ -49,7 +49,6 @@ import (
 	"math"
 
 	"gonum.org/v1/gonum/mat"
-	"gonum.org/v1/gonum/stat/distmv"
 )
 
 var (
@@ -78,6 +77,10 @@ type Settings struct {
 	// and its expected value will be put in the corresponding index of evAll.
 	PredictFull bool
 
+	// PredictTraining sets whether the Train locations should be predicted
+	// in each fold.
+	PredictTraining bool
+
 	// KeepFits sets whether the Predictor fit to each fold should be retained
 	// in the equivalent FoldPrediction.
 	// This field is only useful when implementing a custom AlphaComputer or
@@ -94,6 +97,11 @@ type Result struct {
 
 	// TODO(btracey): Are more returns needed?
 }
+
+// Distribution is an interface representing the p(x) in the expectation term.
+// This is an empty interface because none of the methods are called directly,
+// but a specific type is used to help communicate the intent.
+type Distribution interface{}
 
 // FitError reports an error during training by one of the fits. If the Fold
 // is -1, it means the error was during training to all.
@@ -127,7 +135,7 @@ func (f FitError) Error() string {
 // The interface choice is to help custom implementations (for example to
 // find the expected value of a fit using sampling), and for clarity that the
 // argument is intended to be a distribution.
-func Estimate(xs mat.Matrix, fs, weights []float64, p distmv.RandLogProber, fitters []Fitter, folds []Fold, settings *Settings) (*Result, error) {
+func Estimate(xs mat.Matrix, fs, weights []float64, p Distribution, fitters []Fitter, folds []Fold, settings *Settings) (*Result, error) {
 	nSamples, _ := xs.Dims()
 
 	if settings == nil {
@@ -157,7 +165,7 @@ func Estimate(xs mat.Matrix, fs, weights []float64, p distmv.RandLogProber, fitt
 		panic("stackmc: len weights mismatch. must be nil or rows(x)")
 	}
 
-	uniquePreds := FindUniqueIdxs(folds, len(fitters))
+	uniquePreds := FindUniqueIdxs(folds, len(fitters), settings.PredictTraining)
 
 	evAll, evs, fps, err := trainAndPredict(uniquePreds, xs, fs, weights, folds, fitters, p, settings.PredictFull, settings.KeepFits)
 	if err != nil {
@@ -208,7 +216,7 @@ type FoldPrediction struct {
 // The indices that need to be predicted are the indices that appear in the union
 // of the Assess and Correct fields of Fold. This reduces computational cost
 // by only predicting the value once at each point.
-func FindUniqueIdxs(folds []Fold, nFitter int) (ups []PredictIndices) {
+func FindUniqueIdxs(folds []Fold, nFitter int, predictTrain bool) (ups []PredictIndices) {
 	nFolds := len(folds)
 	ups = make([]PredictIndices, len(folds))
 	for i := range folds {
@@ -217,7 +225,7 @@ func FindUniqueIdxs(folds []Fold, nFitter int) (ups []PredictIndices) {
 		ups[i].ToUniqueIdx = make(map[int]int, l)
 	}
 
-	// Find the unique predictive distributions in assess and update.
+	// Find the unique predictive distributions in assess and correct.
 	for i := 0; i < nFolds; i++ {
 		for _, v := range folds[i].Assess {
 			if _, ok := ups[i].ToUniqueIdx[v]; ok {
@@ -226,13 +234,33 @@ func FindUniqueIdxs(folds []Fold, nFitter int) (ups []PredictIndices) {
 			ups[i].ToUniqueIdx[v] = len(ups[i].Unique)
 			ups[i].Unique = append(ups[i].Unique, v)
 		}
-		for _, v := range ups[i].ToUniqueIdx {
+		for _, v := range folds[i].Correct {
 			if _, ok := ups[i].ToUniqueIdx[v]; ok {
 				continue
 			}
 			ups[i].ToUniqueIdx[v] = len(ups[i].Unique)
 			ups[i].Unique = append(ups[i].Unique, v)
 		}
+		if predictTrain {
+			for _, v := range folds[i].Train {
+				if _, ok := ups[i].ToUniqueIdx[v]; ok {
+					continue
+				}
+				ups[i].ToUniqueIdx[v] = len(ups[i].Unique)
+				ups[i].Unique = append(ups[i].Unique, v)
+			}
+		}
+
+		/*
+			// This has to be totally wrong.
+			for _, v := range ups[i].ToUniqueIdx {
+				if _, ok := ups[i].ToUniqueIdx[v]; ok {
+					continue
+				}
+				ups[i].ToUniqueIdx[v] = len(ups[i].Unique)
+				ups[i].Unique = append(ups[i].Unique, v)
+			}
+		*/
 	}
 	return ups
 }
@@ -261,7 +289,7 @@ func FindAllTrain(folds []Fold) []int {
 // for all of the unique indices for each fold, and stores the data in the
 // respective FoldPredictor. If any of the fits errors, the first error is returned.
 func trainAndPredict(pis []PredictIndices, xs mat.Matrix, fs, weights []float64,
-	folds []Fold, fitters []Fitter, p distmv.RandLogProber, predictFull, keepFits bool) (evAll []float64, evs [][]float64, fps []FoldPrediction, err error) {
+	folds []Fold, fitters []Fitter, p Distribution, predictFull, keepFits bool) (evAll []float64, evs [][]float64, fps []FoldPrediction, err error) {
 
 	nFolds := len(folds)
 	nFit := len(fitters)

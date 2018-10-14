@@ -95,7 +95,7 @@ func (wp Predictor) Predict(x []float64) float64 {
 	return floats.Dot(terms, wp.beta)
 }
 
-func (wp Predictor) ExpectedValue(p distmv.RandLogProber) float64 {
+func (wp Predictor) ExpectedValue(p stackmc.Distribution) float64 {
 	switch p.(type) {
 	default:
 		panic("unsuported distribution for Polynomial")

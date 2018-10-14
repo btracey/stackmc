@@ -3,7 +3,6 @@ package stackmc
 import (
 	"gonum.org/v1/gonum/mat"
 	"gonum.org/v1/gonum/stat"
-	"gonum.org/v1/gonum/stat/distmv"
 )
 
 // Combiner combines the folds together to produce an expected value and an error estimate.
@@ -13,7 +12,7 @@ import (
 // first by fold, and then by fitter. alphas is the same, except the data
 // contains the alpha computed by that fold.
 type Combiner interface {
-	Combine(xs mat.Matrix, fs, weights []float64, p distmv.RandLogProber, folds []Fold, evAll []float64, foldEVs, alpha [][]float64, fps []FoldPrediction) (ev float64)
+	Combine(xs mat.Matrix, fs, weights []float64, p Distribution, folds []Fold, evAll []float64, foldEVs, alpha [][]float64, fps []FoldPrediction) (ev float64)
 }
 
 // BasicCombiner estimates an expected value for each fold by computing
@@ -24,7 +23,7 @@ type BasicCombiner struct{}
 
 var _ Combiner = BasicCombiner{}
 
-func (b BasicCombiner) Combine(xs mat.Matrix, f, weights []float64, p distmv.RandLogProber, folds []Fold, evAll []float64, foldEVs, alpha [][]float64, fps []FoldPrediction) (ev float64) {
+func (b BasicCombiner) Combine(xs mat.Matrix, f, weights []float64, p Distribution, folds []Fold, evAll []float64, foldEVs, alpha [][]float64, fps []FoldPrediction) (ev float64) {
 	// Compute \sum_i \alpha_i ghat_i
 	// If len(fold.Combine) = 0, that fold is ignored here.
 	foldCombinedEvs := b.combineFitEVs(evAll, foldEVs, alpha)

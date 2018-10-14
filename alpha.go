@@ -1,9 +1,10 @@
 package stackmc
 
 import (
+	"fmt"
+
 	"gonum.org/v1/gonum/mat"
 	"gonum.org/v1/gonum/stat"
-	"gonum.org/v1/gonum/stat/distmv"
 )
 
 // AlphaComputer uses the predictions to compute α for each fold. The returned
@@ -12,7 +13,7 @@ import (
 // The computed alpha should respect the information in Folds, using only the data
 // specified by the Assess field of the fold.
 type AlphaComputer interface {
-	ComputeAlpha(xs mat.Matrix, fs, weights []float64, p distmv.RandLogProber, folds []Fold, fps []FoldPrediction, evs [][]float64) [][]float64
+	ComputeAlpha(xs mat.Matrix, fs, weights []float64, p Distribution, folds []Fold, fps []FoldPrediction, evs [][]float64) [][]float64
 }
 
 // SingleAlpha asigns a single alpha to all of the folds of each fit. It concatenates
@@ -26,7 +27,7 @@ type SingleAlpha struct{}
 
 var _ AlphaComputer = SingleAlpha{}
 
-func (sa SingleAlpha) ComputeAlpha(xs mat.Matrix, f, weights []float64, d distmv.RandLogProber, folds []Fold, fps []FoldPrediction, evs [][]float64) [][]float64 {
+func (sa SingleAlpha) ComputeAlpha(xs mat.Matrix, f, weights []float64, d Distribution, folds []Fold, fps []FoldPrediction, evs [][]float64) [][]float64 {
 	nFitters := len(evs[0])
 	var totalPoints int
 	for i := range folds {
@@ -74,9 +75,16 @@ func (sa SingleAlpha) ComputeAlpha(xs mat.Matrix, f, weights []float64, d distmv
 	fitterCovar := covmat.SliceSquare(1, nFitters+1).(mat.Symmetric)
 	var chol mat.Cholesky
 	ok := chol.Factorize(fitterCovar)
+	//btutil.PrintMat("fittercovar alpha", fitterCovar)
 	if !ok {
-		// TODO(btracey): Handle error.
-		panic("stackmc: cholesky error")
+		// TODO(btracey): Handle error better.
+		fmt.Println("cholesky error, returning alpha = 0")
+		alphas := make([][]float64, len(folds))
+		for i := range alphas {
+			alphas[i] = make([]float64, nFitters)
+		}
+		return alphas
+		//panic("stackmc: cholesky error")
 	}
 
 	alpha := make([]float64, nFitters)
